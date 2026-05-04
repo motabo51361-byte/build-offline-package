@@ -828,3 +828,4 @@ Test-Path .\azure-ai-translator\license
 - [Docker Desktop for Windows 官方安裝文件](https://docs.docker.com/desktop/setup/install/windows-install/)
 - [Docker Desktop WSL 2 backend 官方文件](https://docs.docker.com/desktop/features/wsl/)
 - [Microsoft WSL 安裝文件](https://learn.microsoft.com/windows/wsl/install)
+- [pichuang/azure-ai-playground - Azure AI Translator Container](https://github.com/pichuang/azure-ai-playground/tree/main/azure-ai-translator-container)
