@@ -506,6 +506,16 @@ TRANSLATOR_KEY:
 TRANSLATOR_ENDPOINT_URI:
 ```
 
+這兩個值請從 Azure Portal 的 Azure AI Translator Resource 取得：
+
+1. 開啟 Azure Portal。
+2. 進入已建立的 Azure AI Translator resource。
+3. 在左側選單選擇 `Resource Management` → `Keys and Endpoint`。
+4. 複製其中一組 `KEY 1` 或 `KEY 2`，貼到 `TRANSLATOR_KEY`。
+5. 複製 `Endpoint`，貼到 `TRANSLATOR_ENDPOINT_URI`。
+
+Microsoft 官方文件說明：Azure AI Translator container 需要 API key 與 Endpoint URL，兩者可在 Translator resource 的 `Keys and Endpoint` 頁面取得。請參考 [Install and run Translator container using Docker API](https://learn.microsoft.com/en-us/azure/ai-services/translator/containers/install-run) 與 [Azure AI Translator REST API quickstart](https://learn.microsoft.com/en-us/azure/ai-services/translator/text-translation/quickstart/rest-api)。
+
 注意事項：
 
 - `TRANSLATOR_KEY` 以 SecureString 讀取。
@@ -828,4 +838,6 @@ Test-Path .\azure-ai-translator\license
 - [Docker Desktop for Windows 官方安裝文件](https://docs.docker.com/desktop/setup/install/windows-install/)
 - [Docker Desktop WSL 2 backend 官方文件](https://docs.docker.com/desktop/features/wsl/)
 - [Microsoft WSL 安裝文件](https://learn.microsoft.com/windows/wsl/install)
+- [Microsoft Azure AI Translator container 安裝與執行文件](https://learn.microsoft.com/en-us/azure/ai-services/translator/containers/install-run)
+- [Microsoft Azure AI Translator REST API quickstart](https://learn.microsoft.com/en-us/azure/ai-services/translator/text-translation/quickstart/rest-api)
 - [pichuang/azure-ai-playground - Azure AI Translator Container](https://github.com/pichuang/azure-ai-playground/tree/main/azure-ai-translator-container)
