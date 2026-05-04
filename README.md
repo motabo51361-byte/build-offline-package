@@ -479,7 +479,7 @@ docker version
 Test-NetConnection mcr.microsoft.com -Port 443
 ```
 
-切換到 script 所在目錄：
+切換到 script 所在目錄。以下路徑僅為範例，請依實際下載或 clone 的 repo 位置調整：
 
 ```powershell
 cd C:\Users\fuche\OneDrive\CodexProject\build-offline-package
