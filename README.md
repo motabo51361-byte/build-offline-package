@@ -694,11 +694,11 @@ Get-NetTCPConnection -LocalPort 5000 -ErrorAction SilentlyContinue
 範例：
 
 ```powershell
-$body = @(
+$body = ConvertTo-Json -InputObject @(
   @{
     Text = "Hello"
   }
-) | ConvertTo-Json
+)
 
 Invoke-RestMethod `
   -Method Post `
