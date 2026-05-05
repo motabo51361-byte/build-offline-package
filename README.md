@@ -6,8 +6,8 @@
 
 1. [Docker Desktop 安裝指南 Windows 11 + WSL2](#1-docker-desktop-安裝指南-windows-11--wsl2)
 2. [執行 build-offline-package.ps1](#2-執行-build-offline-packageps1)
-3. [離線執行下載好的 Docker image](#3-離線執行下載好的-docker-image)
-4. [更新既有離線伺服器上的 image 與 models](#4-更新既有離線伺服器上的-image-與-models)
+3. [Windows 離線執行下載好的 Docker image](#3-windows-離線執行下載好的-docker-image)
+4. [Windows 更新既有離線伺服器上的 image 與 models](#4-windows-更新既有離線伺服器上的-image-與-models)
 5. [Linux 離線執行下載好的 Docker image](#5-linux-離線執行下載好的-docker-image)
 6. [Linux 更新既有離線伺服器上的 image 與 models](#6-linux-更新既有離線伺服器上的-image-與-models)
 7. [參考文件](#7-參考文件)
@@ -570,7 +570,7 @@ Get-FileHash $pkg.FullName -Algorithm SHA256
 
 ---
 
-# 3. 離線執行下載好的 Docker image
+# 3. Windows 離線執行下載好的 Docker image
 
 本章使用 Windows PowerShell 指令說明離線執行流程。若客戶端離線伺服器為 Linux，請參考第 5 章。
 
@@ -838,7 +838,7 @@ Test-Path .\azure-ai-translator\license
 
 ---
 
-# 4. 更新既有離線伺服器上的 image 與 models
+# 4. Windows 更新既有離線伺服器上的 image 與 models
 
 本章使用 Windows PowerShell 指令說明既有離線伺服器的更新流程。若客戶端離線伺服器為 Linux，請參考第 6 章。
 
