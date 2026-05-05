@@ -8,7 +8,9 @@
 2. [執行 build-offline-package.ps1](#2-執行-build-offline-packageps1)
 3. [離線執行下載好的 Docker image](#3-離線執行下載好的-docker-image)
 4. [更新既有離線伺服器上的 image 與 models](#4-更新既有離線伺服器上的-image-與-models)
-5. [參考文件](#5-參考文件)
+5. [Linux 離線執行下載好的 Docker image](#5-linux-離線執行下載好的-docker-image)
+6. [Linux 更新既有離線伺服器上的 image 與 models](#6-linux-更新既有離線伺服器上的-image-與-models)
+7. [參考文件](#7-參考文件)
 
 ---
 
@@ -570,6 +572,8 @@ Get-FileHash $pkg.FullName -Algorithm SHA256
 
 # 3. 離線執行下載好的 Docker image
 
+本章使用 Windows PowerShell 指令說明離線執行流程。若客戶端離線伺服器為 Linux，請參考第 5 章。
+
 ## 3.1 將 package 帶到離線機器
 
 從有網路機器複製下列檔案到離線機器：
@@ -836,6 +840,8 @@ Test-Path .\azure-ai-translator\license
 
 # 4. 更新既有離線伺服器上的 image 與 models
 
+本章使用 Windows PowerShell 指令說明既有離線伺服器的更新流程。若客戶端離線伺服器為 Linux，請參考第 6 章。
+
 本章適用於離線伺服器已經有舊版 Azure AI Translator container、models 與 license 正在執行，並且需要使用新產出的 `package-azure-ai-translator-container-<timestamp>.tar.gz` 進行更新的情境。
 
 更新時請不要直接將新版 package 解壓覆蓋到舊版執行目錄。建議使用「版本目錄」管理，保留舊版 package 與部署目錄，確保新版異常時可以快速 rollback。
@@ -1063,7 +1069,609 @@ ports:
 
 ---
 
-# 5. 參考文件
+# 5. Linux 離線執行下載好的 Docker image
+
+本章適用於客戶端離線伺服器為 Linux 的情境。線上打包仍由 Windows 端執行 `build-offline-package.ps1`，離線 Linux 伺服器只負責接收 package、載入 image、掛載 models/license，並啟動 Azure AI Translator container。
+
+## 5.1 Linux 伺服器前置需求
+
+請先確認 Linux 離線伺服器已具備：
+
+- Docker Engine。
+- Docker Compose plugin，也就是可使用 `docker compose` 指令。
+- 可使用 `tar` 解壓 `.tar.gz`。
+- 具備啟動 container 與綁定 port `5000` 的權限。
+
+確認 Docker Engine：
+
+```bash
+docker version
+```
+
+確認 Docker Compose plugin：
+
+```bash
+docker compose version
+```
+
+確認 Docker daemon 狀態：
+
+```bash
+sudo systemctl status docker
+```
+
+若目前使用者沒有 docker 權限，可以先用 `sudo docker` 執行本章指令，或由系統管理員將使用者加入 `docker` 群組：
+
+```bash
+sudo usermod -aG docker "$USER"
+```
+
+加入群組後需重新登入 shell session：
+
+```bash
+exit
+```
+
+重新登入後確認：
+
+```bash
+docker ps
+```
+
+## 5.2 將 package 放到 Linux 離線伺服器
+
+建議使用 `/opt/azure-ai-translator-offline` 作為離線部署根目錄。以下路徑僅為範例，請依客戶環境調整。
+
+建立部署目錄：
+
+```bash
+sudo mkdir -p /opt/azure-ai-translator-offline
+sudo chown -R "$USER":"$USER" /opt/azure-ai-translator-offline
+```
+
+切換目錄：
+
+```bash
+cd /opt/azure-ai-translator-offline
+```
+
+將下列檔案複製到此目錄：
+
+```text
+package-azure-ai-translator-container-<timestamp>.tar.gz
+SHA256SUMS.txt
+```
+
+若是從 USB 或掛載磁碟複製，可依實際掛載點調整：
+
+```bash
+cp /mnt/usb/package-azure-ai-translator-container-*.tar.gz .
+cp /mnt/usb/SHA256SUMS.txt .
+```
+
+## 5.3 驗證 package hash
+
+確認檔案：
+
+```bash
+ls -lh
+```
+
+查看 SHA256SUMS：
+
+```bash
+cat SHA256SUMS.txt
+```
+
+使用 `sha256sum -c` 驗證：
+
+```bash
+sha256sum -c SHA256SUMS.txt
+```
+
+預期結果：
+
+```text
+package-azure-ai-translator-container-<timestamp>.tar.gz: OK
+```
+
+若檔名不一致或 package 被重新命名，請手動計算：
+
+```bash
+sha256sum package-azure-ai-translator-container-*.tar.gz
+```
+
+確認輸出的 hash 與 `SHA256SUMS.txt` 中的值一致。
+
+## 5.4 解壓 package
+
+設定 package 變數：
+
+```bash
+PKG="$(ls -t package-azure-ai-translator-container-*.tar.gz | head -n 1)"
+```
+
+解壓：
+
+```bash
+tar -xzf "$PKG" -C .
+```
+
+確認解壓後目錄：
+
+```bash
+find . -maxdepth 3 -type d | sort
+```
+
+確認必要檔案存在：
+
+```bash
+test -f ./archive/oci-azure-translator-text-translation.tar
+test -f ./archive/run-disconnected-container-docker-compose.yaml
+test -d ./azure-ai-translator/models
+test -d ./azure-ai-translator/license
+```
+
+## 5.5 載入 Docker image
+
+載入 image：
+
+```bash
+docker load -i ./archive/oci-azure-translator-text-translation.tar
+```
+
+若需要 sudo：
+
+```bash
+sudo docker load -i ./archive/oci-azure-translator-text-translation.tar
+```
+
+確認 image：
+
+```bash
+docker images | grep 'azure-cognitive-services/translator/text-translation'
+```
+
+## 5.6 啟動離線 container
+
+重要：請在 package 解壓後的根目錄執行，並加上 `--project-directory .`。這可確保 compose 內的相對 volume path 指向目前根目錄的 `azure-ai-translator`，而不是 `archive` 目錄。
+
+啟動：
+
+```bash
+docker compose \
+  --project-directory . \
+  -f ./archive/run-disconnected-container-docker-compose.yaml \
+  up -d
+```
+
+若需要 sudo：
+
+```bash
+sudo docker compose \
+  --project-directory . \
+  -f ./archive/run-disconnected-container-docker-compose.yaml \
+  up -d
+```
+
+確認 container：
+
+```bash
+docker ps --filter "name=azure-ai-translator"
+```
+
+查看 log：
+
+```bash
+docker logs azure-ai-translator
+```
+
+確認 port 5000 是否監聽：
+
+```bash
+ss -ltnp | grep ':5000'
+```
+
+## 5.7 測試本機 API
+
+使用 `curl` 測試服務是否可連線：
+
+```bash
+curl -sS \
+  -X POST \
+  'http://localhost:5000/translate?api-version=3.0&from=en&to=zh-Hant' \
+  -H 'Content-Type: application/json' \
+  --data '[{"Text":"Hello"}]'
+```
+
+若系統有安裝 `jq`，可格式化輸出：
+
+```bash
+curl -sS \
+  -X POST \
+  'http://localhost:5000/translate?api-version=3.0&from=en&to=zh-Hant' \
+  -H 'Content-Type: application/json' \
+  --data '[{"Text":"Hello"}]' | jq .
+```
+
+若 API 回應翻譯結果，代表 container 已可離線服務。
+
+## 5.8 停止離線 container
+
+停止：
+
+```bash
+docker compose \
+  --project-directory . \
+  -f ./archive/run-disconnected-container-docker-compose.yaml \
+  down
+```
+
+若需要 sudo：
+
+```bash
+sudo docker compose \
+  --project-directory . \
+  -f ./archive/run-disconnected-container-docker-compose.yaml \
+  down
+```
+
+確認已停止：
+
+```bash
+docker ps --filter "name=azure-ai-translator"
+```
+
+## 5.9 Linux 離線執行常見問題
+
+### 問題 1 Permission denied while trying to connect to Docker daemon
+
+原因：
+
+- 目前使用者不在 `docker` 群組。
+- Docker daemon socket 需要 root 權限。
+
+解法一：使用 sudo：
+
+```bash
+sudo docker ps
+```
+
+解法二：由系統管理員加入 docker 群組：
+
+```bash
+sudo usermod -aG docker "$USER"
+```
+
+重新登入後確認：
+
+```bash
+docker ps
+```
+
+### 問題 2 docker compose 指令不存在
+
+確認：
+
+```bash
+docker compose version
+```
+
+若出現 `docker: 'compose' is not a docker command`，表示 Docker Compose plugin 尚未安裝。請依客戶 Linux 發行版與企業套件來源安裝 Docker Compose plugin。
+
+### 問題 3 models 或 license 找不到
+
+通常是從錯誤目錄執行 compose，或未加 `--project-directory .`。
+
+請回到 package 解壓根目錄：
+
+```bash
+cd /opt/azure-ai-translator-offline
+```
+
+使用：
+
+```bash
+docker compose --project-directory . -f ./archive/run-disconnected-container-docker-compose.yaml up -d
+```
+
+### 問題 4 port 5000 已被占用
+
+確認占用：
+
+```bash
+sudo ss -ltnp | grep ':5000'
+```
+
+若需修改 port，請編輯：
+
+```bash
+vi ./archive/run-disconnected-container-docker-compose.yaml
+```
+
+將：
+
+```yaml
+ports:
+  - "5000:5000"
+```
+
+改成例如：
+
+```yaml
+ports:
+  - "5001:5000"
+```
+
+重新啟動：
+
+```bash
+docker compose --project-directory . -f ./archive/run-disconnected-container-docker-compose.yaml down
+docker compose --project-directory . -f ./archive/run-disconnected-container-docker-compose.yaml up -d
+```
+
+### 問題 5 container 啟動後立刻退出
+
+查看 log：
+
+```bash
+docker logs azure-ai-translator
+```
+
+確認 compose 與掛載目錄：
+
+```bash
+cat ./archive/run-disconnected-container-docker-compose.yaml
+ls -la ./azure-ai-translator/models
+ls -la ./azure-ai-translator/license
+```
+
+---
+
+# 6. Linux 更新既有離線伺服器上的 image 與 models
+
+本章適用於 Linux 離線伺服器已經有舊版 Azure AI Translator container、models 與 license 正在執行，並且需要使用新產出的 package 進行更新的情境。
+
+更新原則與 Windows 相同：不要直接覆蓋舊版目錄，請使用版本目錄保留 rollback 能力。
+
+## 6.1 建議目錄結構
+
+建議在 Linux 離線伺服器使用下列結構：
+
+```text
+/opt/azure-ai-translator-offline
+  releases/
+    20260501_120000/   # 舊版
+    20260505_150000/   # 新版
+```
+
+建立新版 release 目錄：
+
+```bash
+sudo mkdir -p /opt/azure-ai-translator-offline/releases/20260505_150000
+sudo chown -R "$USER":"$USER" /opt/azure-ai-translator-offline
+```
+
+切換到新版 release 目錄：
+
+```bash
+cd /opt/azure-ai-translator-offline/releases/20260505_150000
+```
+
+將新版 package 與 `SHA256SUMS.txt` 放入此目錄。
+
+## 6.2 驗證新版 package
+
+確認檔案：
+
+```bash
+ls -lh
+```
+
+驗證 SHA256：
+
+```bash
+sha256sum -c SHA256SUMS.txt
+```
+
+若 package 檔名與 `SHA256SUMS.txt` 不一致，請手動計算：
+
+```bash
+sha256sum package-azure-ai-translator-container-*.tar.gz
+```
+
+## 6.3 解壓新版 package
+
+設定 package 變數：
+
+```bash
+PKG="$(ls -t package-azure-ai-translator-container-*.tar.gz | head -n 1)"
+```
+
+解壓：
+
+```bash
+tar -xzf "$PKG" -C .
+```
+
+確認新版內容：
+
+```bash
+test -f ./archive/oci-azure-translator-text-translation.tar
+test -f ./archive/run-disconnected-container-docker-compose.yaml
+test -d ./azure-ai-translator/models
+test -d ./azure-ai-translator/license
+```
+
+## 6.4 停止舊版 container
+
+切換到舊版 release 目錄：
+
+```bash
+cd /opt/azure-ai-translator-offline/releases/20260501_120000
+```
+
+停止舊版 container：
+
+```bash
+docker compose \
+  --project-directory . \
+  -f ./archive/run-disconnected-container-docker-compose.yaml \
+  down
+```
+
+若需要 sudo：
+
+```bash
+sudo docker compose \
+  --project-directory . \
+  -f ./archive/run-disconnected-container-docker-compose.yaml \
+  down
+```
+
+確認已停止：
+
+```bash
+docker ps --filter "name=azure-ai-translator"
+```
+
+## 6.5 載入新版 image
+
+切換到新版 release 目錄：
+
+```bash
+cd /opt/azure-ai-translator-offline/releases/20260505_150000
+```
+
+載入新版 image：
+
+```bash
+docker load -i ./archive/oci-azure-translator-text-translation.tar
+```
+
+確認 image：
+
+```bash
+docker images | grep 'azure-cognitive-services/translator/text-translation'
+```
+
+注意：本工具目前使用的 image tag 是：
+
+```text
+mcr.microsoft.com/azure-cognitive-services/translator/text-translation:latest
+```
+
+因此新版 `docker load` 完成後，`latest` 會指向新版 image。
+
+## 6.6 啟動新版 container
+
+在新版 release 目錄啟動：
+
+```bash
+docker compose \
+  --project-directory . \
+  -f ./archive/run-disconnected-container-docker-compose.yaml \
+  up -d
+```
+
+確認狀態：
+
+```bash
+docker ps --filter "name=azure-ai-translator"
+docker logs azure-ai-translator
+```
+
+確認 port：
+
+```bash
+ss -ltnp | grep ':5000'
+```
+
+## 6.7 更新後驗證
+
+使用本機 API 測試：
+
+```bash
+curl -sS \
+  -X POST \
+  'http://localhost:5000/translate?api-version=3.0&from=en&to=zh-Hant' \
+  -H 'Content-Type: application/json' \
+  --data '[{"Text":"Hello"}]'
+```
+
+確認目前 compose 使用的 models 與 config：
+
+```bash
+grep -E 'MODELS|TRANSLATORSYSTEMCONFIG' ./archive/run-disconnected-container-docker-compose.yaml
+```
+
+## 6.8 Rollback 回舊版
+
+若新版啟動失敗或 API 驗證不通過，請先停止新版。
+
+切換到新版 release 目錄：
+
+```bash
+cd /opt/azure-ai-translator-offline/releases/20260505_150000
+```
+
+停止新版 container：
+
+```bash
+docker compose \
+  --project-directory . \
+  -f ./archive/run-disconnected-container-docker-compose.yaml \
+  down
+```
+
+切換回舊版 release 目錄：
+
+```bash
+cd /opt/azure-ai-translator-offline/releases/20260501_120000
+```
+
+重新載入舊版 image：
+
+```bash
+docker load -i ./archive/oci-azure-translator-text-translation.tar
+```
+
+啟動舊版 container：
+
+```bash
+docker compose \
+  --project-directory . \
+  -f ./archive/run-disconnected-container-docker-compose.yaml \
+  up -d
+```
+
+確認舊版已恢復：
+
+```bash
+docker ps --filter "name=azure-ai-translator"
+docker logs azure-ai-translator
+```
+
+## 6.9 Linux 更新注意事項
+
+- 不要將新版 package 直接解壓覆蓋到舊版 release 目錄。
+- 不要刪除舊版 release 目錄，直到新版已通過驗證並完成觀察期。
+- 新舊版本不能同時使用預設 compose 啟動，因為 container name 與 host port 固定為：
+
+```yaml
+container_name: azure-ai-translator
+ports:
+  - "5000:5000"
+```
+
+- 若需要新舊版本並行測試，必須另外調整新版 compose 的 `container_name` 與 host port，例如改成 `5001:5000`。
+- 若 Linux 主機啟用 SELinux，volume mount 可能受到額外限制，需依企業安全政策調整 label 或掛載策略。
+- 更新前建議記錄舊版 release 目錄、SHA256、image ID、啟動時間與測試結果。
+- 更新後若確認新版穩定，再依企業保留政策清理舊版 release。
+
+---
+
+# 7. 參考文件
 
 - [Docker Desktop for Windows 官方安裝文件](https://docs.docker.com/desktop/setup/install/windows-install/)
 - [Docker Desktop WSL 2 backend 官方文件](https://docs.docker.com/desktop/features/wsl/)
