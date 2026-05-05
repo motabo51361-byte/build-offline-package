@@ -583,22 +583,40 @@ archive\package-azure-ai-translator-container-<timestamp>.tar.gz
 archive\SHA256SUMS.txt
 ```
 
-在離線機器建立工作目錄：
-
-```powershell
-New-Item -ItemType Directory -Path C:\AzureAITranslatorOffline -Force
-```
-
-將 package 放到：
+建議離線機器一開始就使用 release 目錄管理部署版本。以下日期時間僅為範例，建議使用 package 產出的 timestamp 或企業內部版本號：
 
 ```text
 C:\AzureAITranslatorOffline
+  releases\
+    20260505_150000\   # 本次部署版本
 ```
 
-切換工作目錄：
+後續更新時請不要覆蓋此目錄，而是建立下一個 release 目錄；本次部署目錄會成為 rollback 來源。
+
+建立本次部署的 release 目錄：
 
 ```powershell
-cd C:\AzureAITranslatorOffline
+$ReleaseDir = "C:\AzureAITranslatorOffline\releases\20260505_150000"
+New-Item -ItemType Directory -Path $ReleaseDir -Force
+```
+
+將 package 放到本次部署的 release 目錄：
+
+```text
+C:\AzureAITranslatorOffline\releases\20260505_150000
+```
+
+若是從 USB 或暫存資料夾複製，可依實際路徑調整：
+
+```powershell
+Copy-Item E:\package-azure-ai-translator-container-*.tar.gz $ReleaseDir
+Copy-Item E:\SHA256SUMS.txt $ReleaseDir
+```
+
+切換到本次部署的 release 目錄：
+
+```powershell
+cd $ReleaseDir
 ```
 
 ## 3.2 驗證 package hash
@@ -747,10 +765,10 @@ docker ps --filter "name=azure-ai-translator"
 
 原因通常是從錯誤目錄執行 compose，或未加 `--project-directory .`。
 
-請回到 package 解壓根目錄：
+請回到本次部署的 release 目錄，也就是 package 解壓根目錄：
 
 ```powershell
-cd C:\AzureAITranslatorOffline
+cd C:\AzureAITranslatorOffline\releases\20260505_150000
 ```
 
 使用：
@@ -1120,19 +1138,29 @@ docker ps
 
 ## 5.2 將 package 放到 Linux 離線伺服器
 
-建議使用 `/opt/azure-ai-translator-offline` 作為離線部署根目錄。以下路徑僅為範例，請依客戶環境調整。
+建議使用 `/opt/azure-ai-translator-offline` 作為離線部署根目錄，並一開始就使用 release 目錄管理部署版本。以下路徑與日期時間僅為範例，請依客戶環境調整。
 
-建立部署目錄：
+建議目錄結構：
+
+```text
+/opt/azure-ai-translator-offline
+  releases/
+    20260505_150000/   # 本次部署版本
+```
+
+後續更新時請不要覆蓋此目錄，而是建立下一個 release 目錄；本次部署目錄會成為 rollback 來源。
+
+建立本次部署的 release 目錄：
 
 ```bash
-sudo mkdir -p /opt/azure-ai-translator-offline
+sudo mkdir -p /opt/azure-ai-translator-offline/releases/20260505_150000
 sudo chown -R "$USER":"$USER" /opt/azure-ai-translator-offline
 ```
 
-切換目錄：
+切換到本次部署的 release 目錄：
 
 ```bash
-cd /opt/azure-ai-translator-offline
+cd /opt/azure-ai-translator-offline/releases/20260505_150000
 ```
 
 將下列檔案複製到此目錄：
@@ -1363,10 +1391,10 @@ docker compose version
 
 通常是從錯誤目錄執行 compose，或未加 `--project-directory .`。
 
-請回到 package 解壓根目錄：
+請回到本次部署的 release 目錄，也就是 package 解壓根目錄：
 
 ```bash
-cd /opt/azure-ai-translator-offline
+cd /opt/azure-ai-translator-offline/releases/20260505_150000
 ```
 
 使用：
