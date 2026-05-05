@@ -7,7 +7,8 @@
 1. [Docker Desktop 安裝指南 Windows 11 + WSL2](#1-docker-desktop-安裝指南-windows-11--wsl2)
 2. [執行 build-offline-package.ps1](#2-執行-build-offline-packageps1)
 3. [離線執行下載好的 Docker image](#3-離線執行下載好的-docker-image)
-4. [參考文件](#4-參考文件)
+4. [更新既有離線伺服器上的 image 與 models](#4-更新既有離線伺服器上的-image-與-models)
+5. [參考文件](#5-參考文件)
 
 ---
 
@@ -833,7 +834,236 @@ Test-Path .\azure-ai-translator\license
 
 ---
 
-# 4. 參考文件
+# 4. 更新既有離線伺服器上的 image 與 models
+
+本章適用於離線伺服器已經有舊版 Azure AI Translator container、models 與 license 正在執行，並且需要使用新產出的 `package-azure-ai-translator-container-<timestamp>.tar.gz` 進行更新的情境。
+
+更新時請不要直接將新版 package 解壓覆蓋到舊版執行目錄。建議使用「版本目錄」管理，保留舊版 package 與部署目錄，確保新版異常時可以快速 rollback。
+
+## 4.1 建議目錄結構
+
+建議在離線伺服器使用下列結構管理不同版本：
+
+```text
+C:\AzureAITranslatorOffline
+  releases\
+    20260501_120000\   # 舊版
+    20260505_150000\   # 新版
+```
+
+建立新版 release 目錄：
+
+```powershell
+New-Item -ItemType Directory -Path C:\AzureAITranslatorOffline\releases\20260505_150000 -Force
+```
+
+切換到新版 release 目錄：
+
+```powershell
+cd C:\AzureAITranslatorOffline\releases\20260505_150000
+```
+
+將新版 package 與 `SHA256SUMS.txt` 複製到此目錄：
+
+```text
+package-azure-ai-translator-container-<timestamp>.tar.gz
+SHA256SUMS.txt
+```
+
+## 4.2 驗證新版 package
+
+查看交付的 SHA256：
+
+```powershell
+Get-Content .\SHA256SUMS.txt
+```
+
+計算新版 package 的 SHA256：
+
+```powershell
+$pkg = Get-ChildItem .\package-azure-ai-translator-container-*.tar.gz |
+  Sort-Object LastWriteTime -Descending |
+  Select-Object -First 1
+
+Get-FileHash $pkg.FullName -Algorithm SHA256
+```
+
+確認 `Get-FileHash` 的 `Hash` 與 `SHA256SUMS.txt` 中的值一致。
+
+## 4.3 解壓新版 package
+
+在新版 release 目錄中解壓：
+
+```powershell
+tar -xzf $pkg.FullName -C .
+```
+
+確認新版 package 已解壓：
+
+```powershell
+Test-Path .\archive\oci-azure-translator-text-translation.tar
+Test-Path .\archive\run-disconnected-container-docker-compose.yaml
+Test-Path .\azure-ai-translator\models
+Test-Path .\azure-ai-translator\license
+```
+
+## 4.4 停止舊版 container
+
+請切換到舊版 release 目錄，使用舊版的 compose 檔停止目前正在執行的 container。
+
+範例：
+
+```powershell
+cd C:\AzureAITranslatorOffline\releases\20260501_120000
+```
+
+停止舊版 container：
+
+```powershell
+docker compose `
+  --project-directory . `
+  -f .\archive\run-disconnected-container-docker-compose.yaml `
+  down
+```
+
+確認已停止：
+
+```powershell
+docker ps --filter "name=azure-ai-translator"
+```
+
+## 4.5 載入新版 image
+
+切換到新版 release 目錄：
+
+```powershell
+cd C:\AzureAITranslatorOffline\releases\20260505_150000
+```
+
+載入新版 image：
+
+```powershell
+docker load -i .\archive\oci-azure-translator-text-translation.tar
+```
+
+確認 image：
+
+```powershell
+docker images | Select-String "azure-cognitive-services/translator/text-translation"
+```
+
+注意：本工具目前使用的 image tag 是：
+
+```text
+mcr.microsoft.com/azure-cognitive-services/translator/text-translation:latest
+```
+
+因此新版 `docker load` 完成後，`latest` 會指向新版 image。
+
+## 4.6 啟動新版 container
+
+請在新版 release 目錄執行，並保留 `--project-directory .`：
+
+```powershell
+docker compose `
+  --project-directory . `
+  -f .\archive\run-disconnected-container-docker-compose.yaml `
+  up -d
+```
+
+確認 container 狀態：
+
+```powershell
+docker ps --filter "name=azure-ai-translator"
+```
+
+查看 log：
+
+```powershell
+docker logs azure-ai-translator
+```
+
+確認 port 5000：
+
+```powershell
+Get-NetTCPConnection -LocalPort 5000 -ErrorAction SilentlyContinue
+```
+
+## 4.7 更新後驗證
+
+使用第 3.6 節的本機 API 測試方式，確認新版 container 可正常回應。
+
+也可以確認目前 compose 使用的 models 與 config 值：
+
+```powershell
+Get-Content .\archive\run-disconnected-container-docker-compose.yaml |
+  Select-String "MODELS|TRANSLATORSYSTEMCONFIG"
+```
+
+## 4.8 Rollback 回舊版
+
+若新版啟動失敗或 API 驗證不通過，請停止新版 container。
+
+在新版 release 目錄執行：
+
+```powershell
+cd C:\AzureAITranslatorOffline\releases\20260505_150000
+```
+
+```powershell
+docker compose `
+  --project-directory . `
+  -f .\archive\run-disconnected-container-docker-compose.yaml `
+  down
+```
+
+切回舊版 release 目錄：
+
+```powershell
+cd C:\AzureAITranslatorOffline\releases\20260501_120000
+```
+
+重新載入舊版 image：
+
+```powershell
+docker load -i .\archive\oci-azure-translator-text-translation.tar
+```
+
+啟動舊版 container：
+
+```powershell
+docker compose `
+  --project-directory . `
+  -f .\archive\run-disconnected-container-docker-compose.yaml `
+  up -d
+```
+
+確認舊版已恢復：
+
+```powershell
+docker ps --filter "name=azure-ai-translator"
+docker logs azure-ai-translator
+```
+
+## 4.9 更新注意事項
+
+- 不要將新版 package 直接解壓覆蓋到舊版 release 目錄。
+- 不要刪除舊版 release 目錄，直到新版已通過驗證並完成觀察期。
+- 新舊版本不能同時使用預設 compose 啟動，因為 container name 與 host port 固定為：
+
+```yaml
+container_name: azure-ai-translator
+ports:
+  - "5000:5000"
+```
+
+- 若需要新舊版本並行測試，必須另外調整新版 compose 的 `container_name` 與 host port，例如改成 `5001:5000`。
+- 更新前建議記錄舊版 package 目錄、SHA256、啟動時間與測試結果。
+- 更新後若確認新版穩定，再依企業保留政策清理舊版 release。
+
+---
+
+# 5. 參考文件
 
 - [Docker Desktop for Windows 官方安裝文件](https://docs.docker.com/desktop/setup/install/windows-install/)
 - [Docker Desktop WSL 2 backend 官方文件](https://docs.docker.com/desktop/features/wsl/)
