@@ -2,6 +2,8 @@
 
 本 repo 提供 `build-offline-package.ps1`，用於在有網路的 Windows 11 + Docker Desktop 環境中下載 Azure AI Translator container image、models、license，並打包成可帶到離線環境執行的交付檔。
 
+目前 script 產出的 package 只包含繁體中文與英文所需模型，語言參數為 `zh-Hant,en`。
+
 ## 目錄
 
 1. [Docker Desktop 安裝指南 Windows 11 + WSL2](#1-docker-desktop-安裝指南-windows-11--wsl2)
@@ -460,7 +462,17 @@ Start-Process "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe"
 11. 產生 `archive\SHA256SUMS.txt`。
 12. 成功後清理暫存 `.env`、下載用 compose、工作目錄與本機 image tar。
 
-## 2.2 執行前需求
+## 2.2 語言模型範圍
+
+目前 script 內建的 Docker Compose 語言參數為：
+
+```yaml
+Languages: zh-Hant,en
+```
+
+因此打包流程只會下載繁體中文與英文所需模型，產出的 `run-disconnected-container-docker-compose.yaml` 也會使用相同語言參數。
+
+## 2.3 執行前需求
 
 請先確認：
 
@@ -488,7 +500,7 @@ Test-NetConnection mcr.microsoft.com -Port 443
 cd C:\Users\fuche\OneDrive\CodexProject\build-offline-package
 ```
 
-## 2.3 執行 script
+## 2.4 執行 script
 
 若 PowerShell execution policy 阻擋本次執行，可只針對目前程序開放：
 
@@ -526,7 +538,7 @@ Microsoft 官方文件說明：Azure AI Translator container 需要 API key 與 
 - `.env` 會在流程中盡早移除，避免 key 殘留。
 - 不要把 key 寫入 GitHub、README、issue 或 log。
 
-## 2.4 預期輸出
+## 2.5 預期輸出
 
 成功時，最後會留下：
 
