@@ -472,7 +472,49 @@ Languages: zh-Hant,en
 
 因此打包流程只會下載繁體中文與英文所需模型，產出的 `run-disconnected-container-docker-compose.yaml` 也會使用相同語言參數。
 
-## 2.3 執行前需求
+## 2.3 User-managed glossary / hotfix 路徑
+
+產出的 `run-disconnected-container-docker-compose.yaml` 會預留 user-managed glossary / hotfix 掛載路徑：
+
+```yaml
+environment:
+  HotfixDataFolder: /user/local/customhotfix
+  HotfixReloadInterval: "1"
+  HotfixReloadEnabled: "true"
+
+volumes:
+  - ./compose_config/dotnet_translate/TranslateFiles:/user/local/customhotfix
+```
+
+請特別留意：`./compose_config/dotnet_translate/TranslateFiles` 是 container host 端的相對路徑，會依照離線執行時的 `--project-directory .` 所在目錄解析。
+
+例如 Windows release 目錄為：
+
+```text
+C:\AzureAITranslatorOffline\releases\20260505_150000
+```
+
+則實際 host 路徑會是：
+
+```text
+C:\AzureAITranslatorOffline\releases\20260505_150000\compose_config\dotnet_translate\TranslateFiles
+```
+
+例如 Linux release 目錄為：
+
+```text
+/opt/azure-ai-translator-offline/releases/20260505_150000
+```
+
+則實際 host 路徑會是：
+
+```text
+/opt/azure-ai-translator-offline/releases/20260505_150000/compose_config/dotnet_translate/TranslateFiles
+```
+
+若客戶環境需要使用不同實體路徑，請在離線啟動前修改 `archive\run-disconnected-container-docker-compose.yaml` 或 `archive/run-disconnected-container-docker-compose.yaml` 中的 volume host path，並確認 container 內的 `HotfixDataFolder` 與 volume target path 一致。
+
+## 2.4 執行前需求
 
 請先確認：
 
@@ -500,7 +542,7 @@ Test-NetConnection mcr.microsoft.com -Port 443
 cd C:\Users\fuche\OneDrive\CodexProject\build-offline-package
 ```
 
-## 2.4 執行 script
+## 2.5 執行 script
 
 若 PowerShell execution policy 阻擋本次執行，可只針對目前程序開放：
 
@@ -538,7 +580,7 @@ Microsoft 官方文件說明：Azure AI Translator container 需要 API key 與 
 - `.env` 會在流程中盡早移除，避免 key 殘留。
 - 不要把 key 寫入 GitHub、README、issue 或 log。
 
-## 2.5 預期輸出
+## 2.6 預期輸出
 
 成功時，最後會留下：
 
@@ -553,6 +595,7 @@ package 內容包含：
 ```text
 azure-ai-translator\models\
 azure-ai-translator\license\
+compose_config\dotnet_translate\TranslateFiles\
 archive\oci-azure-translator-text-translation.tar
 archive\run-disconnected-container-docker-compose.yaml
 archive\log-download-models_<timestamp>.log
@@ -679,6 +722,7 @@ SHA256SUMS.txt
 ```powershell
 Test-Path .\archive\oci-azure-translator-text-translation.tar
 Test-Path .\archive\run-disconnected-container-docker-compose.yaml
+Test-Path .\compose_config\dotnet_translate\TranslateFiles
 ```
 
 ## 3.4 載入 Docker image
@@ -864,6 +908,7 @@ Get-Content .\archive\run-disconnected-container-docker-compose.yaml
 ```powershell
 Test-Path .\azure-ai-translator\models
 Test-Path .\azure-ai-translator\license
+Test-Path .\compose_config\dotnet_translate\TranslateFiles
 ```
 
 ---
@@ -941,6 +986,7 @@ Test-Path .\archive\oci-azure-translator-text-translation.tar
 Test-Path .\archive\run-disconnected-container-docker-compose.yaml
 Test-Path .\azure-ai-translator\models
 Test-Path .\azure-ai-translator\license
+Test-Path .\compose_config\dotnet_translate\TranslateFiles
 ```
 
 ## 4.4 停止舊版 container
@@ -1250,6 +1296,7 @@ test -f ./archive/oci-azure-translator-text-translation.tar
 test -f ./archive/run-disconnected-container-docker-compose.yaml
 test -d ./azure-ai-translator/models
 test -d ./azure-ai-translator/license
+test -d ./compose_config/dotnet_translate/TranslateFiles
 ```
 
 ## 5.5 載入 Docker image
@@ -1541,6 +1588,7 @@ test -f ./archive/oci-azure-translator-text-translation.tar
 test -f ./archive/run-disconnected-container-docker-compose.yaml
 test -d ./azure-ai-translator/models
 test -d ./azure-ai-translator/license
+test -d ./compose_config/dotnet_translate/TranslateFiles
 ```
 
 ## 6.4 停止舊版 container

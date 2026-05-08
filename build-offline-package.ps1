@@ -289,7 +289,7 @@ services:
       TRANSLATORSYSTEMCONFIG: "$TRANSLATORSYSTEMCONFIG"
       Mounts:Output: /logs
       MODELS_UPDATED: "false"
-      HotfixDataFolder: /hotfix
+      HotfixDataFolder: /user/local/customhotfix
       HotfixReloadInterval: "1"
       HotfixReloadEnabled: "true"
     volumes:
@@ -298,6 +298,7 @@ services:
       - ./azure-ai-translator/output:/output
       - ./azure-ai-translator/license:/license
       - ./azure-ai-translator/hotfix:/hotfix
+      - ./compose_config/dotnet_translate/TranslateFiles:/user/local/customhotfix
     ports:
       - "5000:5000"
     networks:
@@ -317,6 +318,7 @@ services:
   Copy-Item -Recurse $ModelsDir  (Join-Path $staging "azure-ai-translator\models")
   Copy-Item -Recurse $LicenseDir (Join-Path $staging "azure-ai-translator\license")
   Ensure-Dir (Join-Path $staging "archive")
+  Ensure-Dir (Join-Path $staging "compose_config\dotnet_translate\TranslateFiles")
 
   Copy-Item $runComposePath   (Join-Path $staging "archive\$runComposeName")
   Copy-Item $imageTarPath     (Join-Path $staging "archive\$imageTarName")
