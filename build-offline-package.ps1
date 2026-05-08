@@ -1,4 +1,4 @@
-# Version: 20260504
+# Version: 20260508
 # build-offline-package.ps1
 # One-click offline package builder
 # - Prompt for TRANSLATOR_KEY / TRANSLATOR_ENDPOINT_URI
@@ -154,7 +154,7 @@ services:
       EULA: accept
       apikey: ${TRANSLATOR_KEY}
       billing: ${TRANSLATOR_ENDPOINT_URI}
-      Languages: zh-Hant,zh-Hans,en
+      Languages: zh-Hant,en
       MODEL_PATH: /usr/local/models
       GENERATEHOTFIXTEMPLATE: "false"
       DOWNLOADLICENSE: "true"
@@ -280,7 +280,7 @@ services:
     restart: always
     environment:
       EULA: accept
-      Languages: zh-Hant,zh-Hans,en
+      Languages: zh-Hant,en
       MODEL_PATH: /usr/local/models
       GENERATEHOTFIXTEMPLATE: "false"
       DOWNLOADLICENSE: "false"
