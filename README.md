@@ -514,7 +514,51 @@ C:\AzureAITranslatorOffline\releases\20260505_150000\compose_config\dotnet_trans
 
 若客戶環境需要使用不同實體路徑，請在離線啟動前修改 `archive\run-disconnected-container-docker-compose.yaml` 或 `archive/run-disconnected-container-docker-compose.yaml` 中的 volume host path，並確認 container 內的 `HotfixDataFolder` 與 volume target path 一致。
 
-## 2.4 執行前需求
+## 2.4 Docker Compose network 設定
+
+產出的 `run-disconnected-container-docker-compose.yaml` 預設使用 Docker bridge network：
+
+```yaml
+networks:
+  adi-network:
+    driver: bridge
+
+services:
+  azure-ai-translator:
+    networks:
+      - adi-network
+```
+
+請特別留意：客戶環境可能已經有既定 Docker network 或 compose network，例如 `meebot`。若 Azure AI Translator container 需要與既有服務在同一個 Docker network 溝通，請依客戶環境調整 `networks` 區塊與 service 下的 network 名稱。
+
+例如改用既有 external network `meebot`：
+
+```yaml
+networks:
+  meebot:
+    external: true
+
+services:
+  azure-ai-translator:
+    networks:
+      - meebot
+```
+
+套用前請先在客戶環境確認 network 是否存在：
+
+```powershell
+docker network ls
+```
+
+Linux 環境同樣可使用：
+
+```bash
+docker network ls
+```
+
+若 network 不存在，需由客戶依實際架構建立，或改回 compose 自建 bridge network。
+
+## 2.5 執行前需求
 
 請先確認：
 
@@ -542,7 +586,7 @@ Test-NetConnection mcr.microsoft.com -Port 443
 cd C:\Users\fuche\OneDrive\CodexProject\build-offline-package
 ```
 
-## 2.5 執行 script
+## 2.6 執行 script
 
 若 PowerShell execution policy 阻擋本次執行，可只針對目前程序開放：
 
@@ -580,7 +624,7 @@ Microsoft 官方文件說明：Azure AI Translator container 需要 API key 與 
 - `.env` 會在流程中盡早移除，避免 key 殘留。
 - 不要把 key 寫入 GitHub、README、issue 或 log。
 
-## 2.6 預期輸出
+## 2.7 預期輸出
 
 成功時，最後會留下：
 
