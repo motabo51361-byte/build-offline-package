@@ -455,12 +455,31 @@ Start-Process "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe"
 4. 自動產生暫時 `download-models-docker-compose.generated.yaml`。
 5. Pull Azure AI Translator container image。
 6. `docker save` 產生 image tar。
-7. 使用 Docker Compose 下載 models 與 license。
+7. 使用 Docker Compose 下載 models 與 license；若因 SAS token 過期（1 小時效期）或暫時性網路錯誤失敗，**自動重試最多 15 次**，已下載完成的檔案只會被驗證、不會重下載。
 8. 從 compose log 解析 `MODELS` 與 `TRANSLATORSYSTEMCONFIG`。
-9. 產生離線用 `run-disconnected-container-docker-compose.yaml`。
+9. 在套件根目錄產生離線用 `run-disconnected-container-docker-compose.yaml`（跟 `azure-ai-translator\` 同一層，部署時不需要 `--project-directory` workaround）。
 10. 打包成 `archive\package-azure-ai-translator-container-<timestamp>.tar.gz`。
-11. 產生 `archive\SHA256SUMS.txt`。
-12. 成功後清理暫存 `.env`、下載用 compose、工作目錄與本機 image tar。
+11. 產生／累加 `archive\SHA256SUMS.txt`。
+12. 成功後只清理暫存 `.env` 與下載用 compose；docker image、`azure-ai-translator\`（models/license）與本機 image tar **預設一律保留**，供之後在同一台機器重跑時加速使用（見 2.1.1）。
+
+### 2.1.1 斷點續傳：重跑會自動跳過已完成的步驟
+
+`build-offline-package.ps1` 設計成可以重複執行任意次（例如 SAS token 中途過期、程序被中斷），每次執行時會實際檢查磁碟／docker 狀態，跳過已經完成的工作：
+
+- `archive\` 底下已有 SHA256 驗證通過的封裝包 → 直接印出 `ALREADY DONE` 並結束，不會重跑
+- docker image 本機已存在 → 跳過 `docker pull`
+- image tar 已對應目前的 image ID → 跳過 `docker save`
+- 下載階段中斷重跑時，已下載完成的 models/license 檔案只會被容器重新驗證，不會重新下載
+
+因此腳本**預設不會**清空 docker image、`azure-ai-translator\`（models/license）或 image tar——保留這些產物正是讓上述「跳過已完成步驟」得以成立的原因。
+
+如果想略過所有「已完成」判斷、強制從頭重新執行整個流程（例如懷疑某個中間產物已損毀），可以加上 `-Force`：
+
+```powershell
+.\build-offline-package.ps1 -Force
+```
+
+`-Force` 只是讓腳本忽略「已有合法封裝包就直接結束」這個短路判斷，本身不會刪除任何檔案；docker image / models / license / image tar 是否需要重新下載，仍然由該步驟自己的驗證邏輯決定。
 
 ## 2.2 語言模型範圍
 
@@ -486,7 +505,7 @@ volumes:
   - ./compose_config/dotnet_translate/TranslateFiles:/user/local/customhotfix
 ```
 
-請特別留意：`./compose_config/dotnet_translate/TranslateFiles` 是 container host 端的相對路徑，會依照離線執行時的 `--project-directory .` 所在目錄解析。
+請特別留意：`./compose_config/dotnet_translate/TranslateFiles` 是 container host 端的相對路徑，`run-disconnected-container-docker-compose.yaml` 位於套件根目錄，docker compose 會依照這個 compose 檔所在的目錄（也就是套件解壓後的根目錄）解析相對路徑。
 
 例如 Windows release 目錄為：
 
@@ -512,7 +531,7 @@ C:\AzureAITranslatorOffline\releases\20260505_150000\compose_config\dotnet_trans
 /opt/azure-ai-translator-offline/releases/20260505_150000/compose_config/dotnet_translate/TranslateFiles
 ```
 
-若客戶環境需要使用不同實體路徑，請在離線啟動前修改 `archive\run-disconnected-container-docker-compose.yaml` 或 `archive/run-disconnected-container-docker-compose.yaml` 中的 volume host path，並確認 container 內的 `HotfixDataFolder` 與 volume target path 一致。
+若客戶環境需要使用不同實體路徑，請在離線啟動前修改套件根目錄的 `run-disconnected-container-docker-compose.yaml` 中的 volume host path，並確認 container 內的 `HotfixDataFolder` 與 volume target path 一致。
 
 ## 2.4 Docker Compose network 設定
 
@@ -634,14 +653,23 @@ archive\package-azure-ai-translator-container-<timestamp>.tar.gz
 archive\SHA256SUMS.txt
 ```
 
+以及**預設保留**（見 2.1.1）供之後重跑加速用的：
+
+```text
+azure-ai-translator\models\、license\ 等工作目錄
+archive\oci-azure-translator-text-translation.tar
+docker image：mcr.microsoft.com/azure-cognitive-services/translator/text-translation:latest
+```
+
 package 內容包含：
 
 ```text
+run-disconnected-container-docker-compose.yaml   # 離線啟動用 compose（在套件根目錄）
 azure-ai-translator\models\
 azure-ai-translator\license\
+azure-ai-translator\logs\  output\  hotfix\        # 預先建好、可寫入的空目錄
 compose_config\dotnet_translate\TranslateFiles\
 archive\oci-azure-translator-text-translation.tar
-archive\run-disconnected-container-docker-compose.yaml
 archive\log-download-models_<timestamp>.log
 ```
 
@@ -765,7 +793,7 @@ SHA256SUMS.txt
 
 ```powershell
 Test-Path .\archive\oci-azure-translator-text-translation.tar
-Test-Path .\archive\run-disconnected-container-docker-compose.yaml
+Test-Path .\run-disconnected-container-docker-compose.yaml
 Test-Path .\compose_config\dotnet_translate\TranslateFiles
 ```
 
@@ -791,15 +819,12 @@ docker images | Select-String "azure-cognitive-services/translator/text-translat
 
 ## 3.5 啟動離線 container
 
-重要：請在 package 解壓後的根目錄執行，並加上 `--project-directory .`。這可確保 compose 內的相對 volume path 指向目前根目錄的 `azure-ai-translator`，而不是 `archive` 目錄。
+重要：請在 package 解壓後的根目錄執行。`run-disconnected-container-docker-compose.yaml` 就在該根目錄，跟它掛載的 `azure-ai-translator` 同一層，不需要額外的 `--project-directory` 參數。
 
 啟動：
 
 ```powershell
-docker compose `
-  --project-directory . `
-  -f .\archive\run-disconnected-container-docker-compose.yaml `
-  up -d
+docker compose -f .\run-disconnected-container-docker-compose.yaml up -d
 ```
 
 確認 container：
@@ -822,11 +847,15 @@ Get-NetTCPConnection -LocalPort 5000 -ErrorAction SilentlyContinue
 
 ## 3.6 測試本機 API
 
-可用簡單 request 確認服務可連線。實際 API 路徑與參數請依 Azure AI Translator container 版本為準。
-
-範例：
+先確認容器狀態，再打一次實際翻譯。實際 API 路徑與參數請依 Azure AI Translator container 版本為準。
 
 ```powershell
+# 1. 容器狀態：活著、模型已載入（預期 StatusCode 200）
+Invoke-WebRequest -Uri "http://localhost:5000/status" -UseBasicParsing | Select-Object StatusCode
+```
+
+```powershell
+# 2. 實際跑一次翻譯，確認真的能翻譯出結果
 $body = ConvertTo-Json -InputObject @(
   @{
     Text = "Hello"
@@ -840,17 +869,14 @@ Invoke-RestMethod `
   -Body $body
 ```
 
-若 API 回應翻譯結果，代表 container 已可離線服務。
+若 `/status` 回傳 200、`/translate` 回應翻譯結果，代表 container 已可離線服務。
 
 ## 3.7 停止離線 container
 
 停止：
 
 ```powershell
-docker compose `
-  --project-directory . `
-  -f .\archive\run-disconnected-container-docker-compose.yaml `
-  down
+docker compose -f .\run-disconnected-container-docker-compose.yaml down
 ```
 
 確認已停止：
@@ -863,7 +889,7 @@ docker ps --filter "name=azure-ai-translator"
 
 ### 問題 1 docker compose 找不到 models 或 license
 
-原因通常是從錯誤目錄執行 compose，或未加 `--project-directory .`。
+原因通常是沒有在 package 解壓後的根目錄執行 compose。
 
 請回到本次部署的 release 目錄，也就是 package 解壓根目錄：
 
@@ -874,7 +900,7 @@ cd C:\AzureAITranslatorOffline\releases\20260505_150000
 使用：
 
 ```powershell
-docker compose --project-directory . -f .\archive\run-disconnected-container-docker-compose.yaml up -d
+docker compose -f .\run-disconnected-container-docker-compose.yaml up -d
 ```
 
 ### 問題 2 image not found
@@ -909,7 +935,7 @@ Get-Process -Id <OwningProcess>
 若需修改 port，請編輯：
 
 ```text
-archive\run-disconnected-container-docker-compose.yaml
+run-disconnected-container-docker-compose.yaml
 ```
 
 將：
@@ -929,8 +955,8 @@ ports:
 重新啟動：
 
 ```powershell
-docker compose --project-directory . -f .\archive\run-disconnected-container-docker-compose.yaml down
-docker compose --project-directory . -f .\archive\run-disconnected-container-docker-compose.yaml up -d
+docker compose -f .\run-disconnected-container-docker-compose.yaml down
+docker compose -f .\run-disconnected-container-docker-compose.yaml up -d
 ```
 
 ### 問題 4 container 啟動後立刻退出
@@ -944,7 +970,7 @@ docker logs azure-ai-translator
 檢查 compose：
 
 ```powershell
-Get-Content .\archive\run-disconnected-container-docker-compose.yaml
+Get-Content .\run-disconnected-container-docker-compose.yaml
 ```
 
 確認以下資料夾存在：
@@ -1027,7 +1053,7 @@ tar -xzf $pkg.FullName -C .
 
 ```powershell
 Test-Path .\archive\oci-azure-translator-text-translation.tar
-Test-Path .\archive\run-disconnected-container-docker-compose.yaml
+Test-Path .\run-disconnected-container-docker-compose.yaml
 Test-Path .\azure-ai-translator\models
 Test-Path .\azure-ai-translator\license
 Test-Path .\compose_config\dotnet_translate\TranslateFiles
@@ -1046,10 +1072,7 @@ cd C:\AzureAITranslatorOffline\releases\20260501_120000
 停止舊版 container：
 
 ```powershell
-docker compose `
-  --project-directory . `
-  -f .\archive\run-disconnected-container-docker-compose.yaml `
-  down
+docker compose -f .\run-disconnected-container-docker-compose.yaml down
 ```
 
 確認已停止：
@@ -1088,13 +1111,10 @@ mcr.microsoft.com/azure-cognitive-services/translator/text-translation:latest
 
 ## 4.6 啟動新版 container
 
-請在新版 release 目錄執行，並保留 `--project-directory .`：
+請在新版 release 目錄執行：
 
 ```powershell
-docker compose `
-  --project-directory . `
-  -f .\archive\run-disconnected-container-docker-compose.yaml `
-  up -d
+docker compose -f .\run-disconnected-container-docker-compose.yaml up -d
 ```
 
 確認 container 狀態：
@@ -1122,7 +1142,7 @@ Get-NetTCPConnection -LocalPort 5000 -ErrorAction SilentlyContinue
 也可以確認目前 compose 使用的 models 與 config 值：
 
 ```powershell
-Get-Content .\archive\run-disconnected-container-docker-compose.yaml |
+Get-Content .\run-disconnected-container-docker-compose.yaml |
   Select-String "MODELS|TRANSLATORSYSTEMCONFIG"
 ```
 
@@ -1137,10 +1157,7 @@ cd C:\AzureAITranslatorOffline\releases\20260505_150000
 ```
 
 ```powershell
-docker compose `
-  --project-directory . `
-  -f .\archive\run-disconnected-container-docker-compose.yaml `
-  down
+docker compose -f .\run-disconnected-container-docker-compose.yaml down
 ```
 
 切回舊版 release 目錄：
@@ -1158,10 +1175,7 @@ docker load -i .\archive\oci-azure-translator-text-translation.tar
 啟動舊版 container：
 
 ```powershell
-docker compose `
-  --project-directory . `
-  -f .\archive\run-disconnected-container-docker-compose.yaml `
-  up -d
+docker compose -f .\run-disconnected-container-docker-compose.yaml up -d
 ```
 
 確認舊版已恢復：
@@ -1337,13 +1351,21 @@ find . -maxdepth 3 -type d | sort
 
 ```bash
 test -f ./archive/oci-azure-translator-text-translation.tar
-test -f ./archive/run-disconnected-container-docker-compose.yaml
+test -f ./run-disconnected-container-docker-compose.yaml
 test -d ./azure-ai-translator/models
 test -d ./azure-ai-translator/license
 test -d ./compose_config/dotnet_translate/TranslateFiles
 ```
 
-## 5.5 載入 Docker image
+## 5.5 修正權限
+
+容器內部行程是以非 root 的 UID 65532 執行（distroless nonroot image）。`tar -xzf` 解壓縮時會依照當下系統的 umask 蓋掉打包時設定好的權限，所以解壓後務必重新修正一次，否則容器對 `azure-ai-translator/{models,license,logs,output,hotfix}` 與 `compose_config/` 寫入會被拒絕，容器啟動後立刻退出：
+
+```bash
+chmod -R o+rwX azure-ai-translator compose_config
+```
+
+## 5.6 載入 Docker image
 
 載入 image：
 
@@ -1363,26 +1385,20 @@ sudo docker load -i ./archive/oci-azure-translator-text-translation.tar
 docker images | grep 'azure-cognitive-services/translator/text-translation'
 ```
 
-## 5.6 啟動離線 container
+## 5.7 啟動離線 container
 
-重要：請在 package 解壓後的根目錄執行，並加上 `--project-directory .`。這可確保 compose 內的相對 volume path 指向目前根目錄的 `azure-ai-translator`，而不是 `archive` 目錄。
+重要：請在 package 解壓後的根目錄執行。`run-disconnected-container-docker-compose.yaml` 就在該根目錄，跟它掛載的 `azure-ai-translator` 同一層，不需要額外的 `--project-directory` 參數。
 
 啟動：
 
 ```bash
-docker compose \
-  --project-directory . \
-  -f ./archive/run-disconnected-container-docker-compose.yaml \
-  up -d
+docker compose -f ./run-disconnected-container-docker-compose.yaml up -d
 ```
 
 若需要 sudo：
 
 ```bash
-sudo docker compose \
-  --project-directory . \
-  -f ./archive/run-disconnected-container-docker-compose.yaml \
-  up -d
+sudo docker compose -f ./run-disconnected-container-docker-compose.yaml up -d
 ```
 
 確認 container：
@@ -1403,11 +1419,15 @@ docker logs azure-ai-translator
 ss -ltnp | grep ':5000'
 ```
 
-## 5.7 測試本機 API
-
-使用 `curl` 測試服務是否可連線：
+## 5.8 測試本機 API
 
 ```bash
+# 1. 容器狀態：活著、模型已載入（預期輸出 200）
+curl -sS -o /dev/null -w '%{http_code}\n' --max-time 10 http://localhost:5000/status
+```
+
+```bash
+# 2. 實際跑一次翻譯，確認真的能翻譯出結果
 curl -sS \
   -X POST \
   'http://localhost:5000/translate?api-version=3.0&from=en&to=zh-Hant' \
@@ -1415,7 +1435,7 @@ curl -sS \
   --data '[{"Text":"Hello"}]'
 ```
 
-若系統有安裝 `jq`，可格式化輸出：
+若系統有安裝 `jq`，可格式化第 2 步輸出：
 
 ```bash
 curl -sS \
@@ -1425,26 +1445,20 @@ curl -sS \
   --data '[{"Text":"Hello"}]' | jq .
 ```
 
-若 API 回應翻譯結果，代表 container 已可離線服務。
+若第 1 步回傳 `200`、第 2 步回應翻譯結果，代表 container 已可離線服務。
 
-## 5.8 停止離線 container
+## 5.9 停止離線 container
 
 停止：
 
 ```bash
-docker compose \
-  --project-directory . \
-  -f ./archive/run-disconnected-container-docker-compose.yaml \
-  down
+docker compose -f ./run-disconnected-container-docker-compose.yaml down
 ```
 
 若需要 sudo：
 
 ```bash
-sudo docker compose \
-  --project-directory . \
-  -f ./archive/run-disconnected-container-docker-compose.yaml \
-  down
+sudo docker compose -f ./run-disconnected-container-docker-compose.yaml down
 ```
 
 確認已停止：
@@ -1453,7 +1467,7 @@ sudo docker compose \
 docker ps --filter "name=azure-ai-translator"
 ```
 
-## 5.9 Linux 離線執行常見問題
+## 5.10 Linux 離線執行常見問題
 
 ### 問題 1 Permission denied while trying to connect to Docker daemon
 
@@ -1492,7 +1506,7 @@ docker compose version
 
 ### 問題 3 models 或 license 找不到
 
-通常是從錯誤目錄執行 compose，或未加 `--project-directory .`。
+通常是沒有在 package 解壓後的根目錄執行 compose。
 
 請回到本次部署的 release 目錄，也就是 package 解壓根目錄：
 
@@ -1503,7 +1517,7 @@ cd /opt/azure-ai-translator-offline/releases/20260505_150000
 使用：
 
 ```bash
-docker compose --project-directory . -f ./archive/run-disconnected-container-docker-compose.yaml up -d
+docker compose -f ./run-disconnected-container-docker-compose.yaml up -d
 ```
 
 ### 問題 4 port 5000 已被占用
@@ -1517,7 +1531,7 @@ sudo ss -ltnp | grep ':5000'
 若需修改 port，請編輯：
 
 ```bash
-vi ./archive/run-disconnected-container-docker-compose.yaml
+vi ./run-disconnected-container-docker-compose.yaml
 ```
 
 將：
@@ -1537,13 +1551,19 @@ ports:
 重新啟動：
 
 ```bash
-docker compose --project-directory . -f ./archive/run-disconnected-container-docker-compose.yaml down
-docker compose --project-directory . -f ./archive/run-disconnected-container-docker-compose.yaml up -d
+docker compose -f ./run-disconnected-container-docker-compose.yaml down
+docker compose -f ./run-disconnected-container-docker-compose.yaml up -d
 ```
 
 ### 問題 5 container 啟動後立刻退出
 
-查看 log：
+最常見原因是權限問題：`tar` 解壓縮把打包時設定好的權限蓋掉了。確認有沒有執行過 5.5 的 chmod：
+
+```bash
+chmod -R o+rwX azure-ai-translator compose_config
+```
+
+查看 log（若是權限問題會看到 `Access ... is denied` 或 `Permission denied`）：
 
 ```bash
 docker logs azure-ai-translator
@@ -1552,7 +1572,7 @@ docker logs azure-ai-translator
 確認 compose 與掛載目錄：
 
 ```bash
-cat ./archive/run-disconnected-container-docker-compose.yaml
+cat ./run-disconnected-container-docker-compose.yaml
 ls -la ./azure-ai-translator/models
 ls -la ./azure-ai-translator/license
 ```
@@ -1629,13 +1649,21 @@ tar -xzf "$PKG" -C .
 
 ```bash
 test -f ./archive/oci-azure-translator-text-translation.tar
-test -f ./archive/run-disconnected-container-docker-compose.yaml
+test -f ./run-disconnected-container-docker-compose.yaml
 test -d ./azure-ai-translator/models
 test -d ./azure-ai-translator/license
 test -d ./compose_config/dotnet_translate/TranslateFiles
 ```
 
-## 6.4 停止舊版 container
+## 6.4 修正權限
+
+同 5.5：`tar` 解壓縮會依當下 umask 蓋掉打包時設定好的權限，容器是以非 root UID 65532 執行，需要能寫入這幾個目錄，解壓後務必重新修正一次：
+
+```bash
+chmod -R o+rwX azure-ai-translator compose_config
+```
+
+## 6.5 停止舊版 container
 
 切換到舊版 release 目錄：
 
@@ -1646,19 +1674,13 @@ cd /opt/azure-ai-translator-offline/releases/20260501_120000
 停止舊版 container：
 
 ```bash
-docker compose \
-  --project-directory . \
-  -f ./archive/run-disconnected-container-docker-compose.yaml \
-  down
+docker compose -f ./run-disconnected-container-docker-compose.yaml down
 ```
 
 若需要 sudo：
 
 ```bash
-sudo docker compose \
-  --project-directory . \
-  -f ./archive/run-disconnected-container-docker-compose.yaml \
-  down
+sudo docker compose -f ./run-disconnected-container-docker-compose.yaml down
 ```
 
 確認已停止：
@@ -1667,7 +1689,7 @@ sudo docker compose \
 docker ps --filter "name=azure-ai-translator"
 ```
 
-## 6.5 載入新版 image
+## 6.6 載入新版 image
 
 切換到新版 release 目錄：
 
@@ -1695,15 +1717,12 @@ mcr.microsoft.com/azure-cognitive-services/translator/text-translation:latest
 
 因此新版 `docker load` 完成後，`latest` 會指向新版 image。
 
-## 6.6 啟動新版 container
+## 6.7 啟動新版 container
 
 在新版 release 目錄啟動：
 
 ```bash
-docker compose \
-  --project-directory . \
-  -f ./archive/run-disconnected-container-docker-compose.yaml \
-  up -d
+docker compose -f ./run-disconnected-container-docker-compose.yaml up -d
 ```
 
 確認狀態：
@@ -1719,7 +1738,7 @@ docker logs azure-ai-translator
 ss -ltnp | grep ':5000'
 ```
 
-## 6.7 更新後驗證
+## 6.8 更新後驗證
 
 使用本機 API 測試：
 
@@ -1734,10 +1753,10 @@ curl -sS \
 確認目前 compose 使用的 models 與 config：
 
 ```bash
-grep -E 'MODELS|TRANSLATORSYSTEMCONFIG' ./archive/run-disconnected-container-docker-compose.yaml
+grep -E 'MODELS|TRANSLATORSYSTEMCONFIG' ./run-disconnected-container-docker-compose.yaml
 ```
 
-## 6.8 Rollback 回舊版
+## 6.9 Rollback 回舊版
 
 若新版啟動失敗或 API 驗證不通過，請先停止新版。
 
@@ -1750,10 +1769,7 @@ cd /opt/azure-ai-translator-offline/releases/20260505_150000
 停止新版 container：
 
 ```bash
-docker compose \
-  --project-directory . \
-  -f ./archive/run-disconnected-container-docker-compose.yaml \
-  down
+docker compose -f ./run-disconnected-container-docker-compose.yaml down
 ```
 
 切換回舊版 release 目錄：
@@ -1771,10 +1787,7 @@ docker load -i ./archive/oci-azure-translator-text-translation.tar
 啟動舊版 container：
 
 ```bash
-docker compose \
-  --project-directory . \
-  -f ./archive/run-disconnected-container-docker-compose.yaml \
-  up -d
+docker compose -f ./run-disconnected-container-docker-compose.yaml up -d
 ```
 
 確認舊版已恢復：
@@ -1784,7 +1797,7 @@ docker ps --filter "name=azure-ai-translator"
 docker logs azure-ai-translator
 ```
 
-## 6.9 Linux 更新注意事項
+## 6.10 Linux 更新注意事項
 
 - 不要將新版 package 直接解壓覆蓋到舊版 release 目錄。
 - 不要刪除舊版 release 目錄，直到新版已通過驗證並完成觀察期。
